@@ -383,6 +383,7 @@ boolean quickStart;                                     // should we execute men
 #define    IAMBICB      2          // Curtis Mode B (with enhanced Curtis timing, set as parameter
 #define    ULTIMATIC    3          // Ultimatic mode
 #define    NONSQUEEZE   4          // Non-squeeze mode of dual-lever paddles - simulate a single-lever paddle
+#define    STRAIGHT     5          // Force straight key
 
 // define modes for state machine of the various modi the encoder can be in
  
@@ -1402,12 +1403,14 @@ void loop() {
                                                 break;
                             case  COMPLETE_ANSWER:                    
                             case  GET_ANSWER:
-                                if (doStraightKey(leftKey, rightKey))
-                                  return;
-                                /*
-                                if (doPaddleIambic(leftKey, rightKey)) 
-                                    return;                             // we are busy keying and so need a very tight loop !
-                                */
+                                if(p_keyermode == STRAIGHT) {
+                                  if (doStraightKey(leftKey, rightKey))
+                                    return;
+                                }
+                                else {
+                                  if (doPaddleIambic(leftKey, rightKey))
+                                      return;                             // we are busy keying and so need a very tight loop !
+                                }
                                 break;
                             }                              
                             break;
@@ -2407,6 +2410,7 @@ void displayTopLine() {
       case IAMBICB:   printOnStatusLine(false, 2,  "B "); break;          // orig Curtis B mode: paddle eval during element
       case ULTIMATIC: printOnStatusLine(false, 2,  "U "); break;          // Ultimatic Mode
       case NONSQUEEZE: printOnStatusLine(false, 2,  "N "); break;         // Non-squeeze mode
+      case STRAIGHT: printOnStatusLine(false, 2,  "S "); break;         // Straight-key mode
     }
   }
 
@@ -3193,7 +3197,8 @@ void displayCurtisMode() {
   String keyerModus[] = {"Curtis A    ", 
                          "Curtis B    ", 
                          "Ultimatic   ",
-                         "Non-Squeeze "};
+                         "Non-Squeeze ",
+                         "Straight    "};
   printOnScroll(2, REGULAR, 1, keyerModus[p_keyermode-1]);
 }   
 
@@ -3560,7 +3565,7 @@ boolean adjustKeyerPreference(prefPos pos) {        /// rotating the encoder cha
             pwmClick(p_sidetoneVolume);         /// click 
             switch (pos) {
                 case  posCurtisMode : p_keyermode = (p_keyermode + t);                        // set the curtis mode
-                                      p_keyermode = constrain(p_keyermode, 1, 4);
+                                      p_keyermode = constrain(p_keyermode, 1, 5);
                                       displayCurtisMode();                                    // display curtis mode
                                       break;
                 case  posCurtisBDahTiming : p_curtisBTiming += (t * 5);                          // Curtis B timing dah (enhanced Curtis mode)
