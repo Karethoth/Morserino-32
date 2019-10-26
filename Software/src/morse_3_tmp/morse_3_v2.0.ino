@@ -2196,6 +2196,7 @@ bool doStraightKey(bool keyA, bool keyB) {
         if (isPressed) {
           ON_();
           decoderState = HIGH_;
+          return true;
         } else {
             lowDuration = millis() - startTimeLow;             // we record the length of the pause
             lacktime = 5;                 ///  when high speeds we have to have a little more pause before new word
@@ -2203,7 +2204,6 @@ bool doStraightKey(bool keyA, bool keyB) {
             if (p_wpm > 35) lacktime = 6;
             else if (p_wpm > 30) lacktime = 5.5;
 
-            Serial.print(millis()); Serial.print(" > "); Serial.println(genTimer);
             if (echoTrainerState == GET_ANSWER && millis() > genTimer) {
               echoTrainerState = EVAL_ANSWER;
               return false;
@@ -2214,8 +2214,9 @@ bool doStraightKey(bool keyA, bool keyB) {
               decoderState = LOW_;
             }
             */
+
+            return false;
         }
-        return true;
         break;
 
     case LOW_:
@@ -2230,7 +2231,7 @@ bool doStraightKey(bool keyA, bool keyB) {
         OFF_();
         decoderState = INTERELEMENT_;
         if(morseState == echoTrainer && echoTrainerState == GET_ANSWER) {
-          genTimer = millis() + interCharacterSpace + (p_promptPause * interWordSpace);
+          genTimer = millis() + (interCharacterSpace + (p_promptPause * interWordSpace))/2;
         }
       }
       break;
