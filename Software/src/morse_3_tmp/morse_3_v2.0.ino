@@ -1656,7 +1656,7 @@ void menuDisplay(uint8_t ptr) {
   uint8_t twoUp = menuNav[oneUp][naviUp];
   uint8_t oneDown = menuNav[ptr][naviDown];
     
-  printOnStatusLine(true, 0,  "Select Mode:      ");
+  printOnStatusLine(true, 0,  "Select Modus:      ");
 
   clearLine(0); clearLine(1); clearLine(2);                       // delete previous content
   
