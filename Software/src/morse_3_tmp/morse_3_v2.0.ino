@@ -1764,7 +1764,12 @@ boolean menuExec() {                                          // return true if 
                 display.clear();
                 printOnScroll(0, REGULAR, 0, generatorMode == KOCH_LEARN ? "New Character:" : "Echo Trainer:");
                 printOnScroll(1, REGULAR, 0, "Start:       ");
-                printOnScroll(2, REGULAR, 0, "Press paddle ");
+                if(p_keyermode != STRAIGHT) {
+                  printOnScroll(2, REGULAR, 0, "Press paddle ");
+                }
+                else {
+                  printOnScroll(2, REGULAR, 0, "Press key ");
+                }
                 delay(1250);
                 display.clear();
                 displayTopLine();
