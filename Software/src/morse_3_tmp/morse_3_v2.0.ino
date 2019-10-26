@@ -3762,6 +3762,14 @@ boolean adjustKeyerPreference(prefPos pos) {        /// rotating the encoder cha
 ///////// evaluate the response in Echo Trainer Mode
 void echoTrainerEval() {
     delay(interCharacterSpace / 2);
+
+    // If any <err>s got sent, evaluate only the string after the last one
+    int err_index = echoResponse.indexOf("<err>");
+    while(err_index >= 0) {
+      echoResponse = echoResponse.substring(err_index + 5);
+      err_index = echoResponse.indexOf("<err>");
+    }
+
     if (echoResponse == echoTrainerWord) {
       echoTrainerState = SEND_WORD;
       printToScroll(BOLD,  "OK");
