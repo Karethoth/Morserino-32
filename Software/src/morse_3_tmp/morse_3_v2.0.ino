@@ -1,7 +1,7 @@
 //////// Program Version
 #define VERSION_MAJOR 2
 #define VERSION_MINOR 0
-#define BETA false
+#define BETA true
 
 ///// its is crucial to have the right board version - Boards 2 and 2a (prototypes only) set it to 2, Boards 3 set it to 3
 ///// the Board Version 2 is for HEltec Modules V1 only, Board Version 3 for Heltec V2 only
@@ -1403,14 +1403,8 @@ void loop() {
                                                 break;
                             case  COMPLETE_ANSWER:                    
                             case  GET_ANSWER:
-                                if(p_keyermode == STRAIGHT) {
-                                  if (doStraightKey(leftKey, rightKey))
-                                    return;
-                                }
-                                else {
-                                  if (doPaddleIambic(leftKey, rightKey))
-                                      return;                             // we are busy keying and so need a very tight loop !
-                                }
+                                if (doPaddleIambic(leftKey, rightKey))
+                                    return;                             // we are busy keying and so need a very tight loop !
                                 break;
                             }                              
                             break;
@@ -1950,6 +1944,11 @@ boolean menuExec() {                                          // return true if 
 /////
 
 boolean doPaddleIambic (boolean dit, boolean dah) {
+
+  if(p_keyermode == STRAIGHT) {
+    return doStraightKey(leftKey, rightKey);
+  }
+
   boolean paddleSwap;                      // temp storage if we need to swap left and right
   static long ktimer;                      // timer for current element (dit or dah)
   static long curtistimer;                 // timer for early paddle latch in Curtis mode B+
