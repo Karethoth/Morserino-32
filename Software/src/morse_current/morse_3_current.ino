@@ -1,6 +1,6 @@
 //////// Program Version
 #define VERSION_MAJOR 2
-#define VERSION_MINOR 0
+#define VERSION_MINOR 1
 #define BETA false
 
 ///// its is crucial to have the right board version - Boards 2 and 2a (prototypes only) set it to 2, Boards 3 set it to 3
@@ -1025,6 +1025,7 @@ long lowDuration;
 boolean stop = false;
 
 unsigned long ditAvg, dahAvg;     /// average values of dit and dah lengths to decode as dit or dah and to adapt to speed change
+uint8_t d_wpm;                    /// wpm as decoded
 
 volatile uint8_t  dit_rot = 0;
 volatile unsigned long  dit_collector = 0;
@@ -1282,6 +1283,8 @@ void displayStartUp() {
     displayEmptyBattery();                            // warn about empty battery and go to deep sleep (again)
   }
   else {
+    if (volt > 5000)
+        volt /= 2;
       displayBatteryStatus(volt);
   }
   delay(3000);
@@ -1349,7 +1352,7 @@ void loop() {
                                   break;
                                 }
                               case stop2: {
-                                  printToScroll(REGULAR, "\n");
+                                  printToScroll(REGULAR, " \n"); // "\n"
                                   autoStop = off;
                                   break;
                                 }
@@ -1373,7 +1376,10 @@ void loop() {
                                printOnStatusLine(true, 0, "Continue w/ Paddle");
                             }
                           else {
-                               cleanStartSettings();        
+                               //cleanStartSettings();    
+                               generatorState = KEY_UP;
+                               genTimer = millis() - 1; 
+                               displayTopLine();   
                             }
                           }
                           if (active)
@@ -2341,12 +2347,15 @@ void dispLoraLogo() {     // display a small logo in the top right corner to ind
 
 void displayCWspeed () {
   if (( morseState == morseGenerator || morseState ==  echoTrainer )) 
-      sprintf(numBuffer, "(%2i)", effWpm);   
+      sprintf(numBuffer, "(%2i)", effWpm);  
+  else if (morseState == morseTrx )
+      sprintf(numBuffer, "r%2is", d_wpm)
+      ;
   else sprintf(numBuffer, "    ");
   
-  printOnStatusLine(false, 3,  numBuffer);                                         // effective wpm
-  
-  sprintf(numBuffer, "%2i", p_wpm);
+  printOnStatusLine(false, 3,  numBuffer);                                         // effective wpm or rxwpm
+
+  sprintf(numBuffer, "%2i", (morseState == morseDecoder ? d_wpm : p_wpm));         // d_wpm (decode) or p_wpm (default)
   printOnStatusLine(encoderState == speedSettingMode ? true : false, 7,  numBuffer);
   printOnStatusLine(false, 10,  "WpM");
   display.display();
@@ -2830,20 +2839,29 @@ void fetchNewWord() {
     } else {   
    
       randomGenerate:       repeats = 0;
-                            if (((morseState == morseGenerator) || (morseState == echoTrainer)) && (p_maxSequence != 0) &&
-                                    (generatorMode != KOCH_LEARN))  {                                           // a case for maxSequence
-                                ++ wordCounter;
+                            clearText = "";
+                            if ((p_maxSequence != 0) && (generatorMode != KOCH_LEARN))
+                              if ( morseState == echoTrainer || ((morseState == morseGenerator) && !p_autoStop) ) {
+                                // a case for maxSequence - no maxSequence in autostop mode
+                            //if (((morseState == morseGenerator) || (morseState == echoTrainer)) && (p_maxSequence != 0) &&
+                            //        (generatorMode != KOCH_LEARN) && !p_autoStop)  {                          
+                                ++ wordCounter;                                                               // 
                                 int limit = 1 + p_maxSequence;
                                 if (wordCounter == limit) {
                                   clearText = "+";
-                                    echoStop = true;
+                                  echoStop = true;
+                                  if (echoTrainerState == REPEAT_WORD)
+                                    echoTrainerState = SEND_WORD;
+                                  //Serial.println("+");
                                 }
                                 else if (wordCounter == (limit+1)) {
                                     stopFlag = true;
                                     echoStop = false;
                                     wordCounter = 1;
+                                    //Serial.println("+ +1");
                                 }
                             }
+                            //Serial.println("clearText: " + clearText);
                             if (clearText != "+") {
                                 switch (generatorMode) {
                                       case  RANDOMS:  clearText = getRandomChars(p_randomLength, p_randomOption);
@@ -3868,6 +3886,7 @@ void clearScrollBuffer() {
 
 void flushScroll() {
   //Serial.println("Flushing String Buffer: " + printToScroll_buffer + "Length: " + printToScroll_buffer.length());
+  printToScroll_buffer.replace("\n", "");
 
   uint8_t len = printToScroll_buffer.length();
   if (len != 0) {
@@ -4496,6 +4515,7 @@ void setupMorseDecoder() {
   decoderState = LOW_;
   ditAvg = 60;
   dahAvg = 180;
+  d_wpm = 15;
 }
 
 //const float sampling_freq = 106000.0;
@@ -4628,9 +4648,9 @@ void doDecode() {
                               //  else if (p_wpm > 30) lacktime = 2.6;
                               if (lowDuration > (lacktime * ditAvg)) {
                                 displayMorse();                                             /// decode the morse character and display it
-                                wpm = (p_wpm + (int) (7200 / (dahAvg + 3*ditAvg))) / 2;     //// recalculate speed in wpm
-                                if (p_wpm != wpm) {
-                                  p_wpm = wpm;
+                                wpm = (d_wpm + (int) (7200 / (dahAvg + 3*ditAvg))) / 2;     //// recalculate speed in wpm
+                                if (d_wpm != wpm) {
+                                  d_wpm = wpm;
                                   speedChanged = true;
                                 }
                                 decoderState = INTERCHAR_;
@@ -4643,8 +4663,8 @@ void doDecode() {
                           } else {
                               lowDuration = millis() - startTimeLow;             // we record the length of the pause
                               lacktime = 5;                 ///  when high speeds we have to have a little more pause before new word
-                              if (p_wpm > 35) lacktime = 6;
-                                else if (p_wpm > 30) lacktime = 5.5;
+                              if (d_wpm > 35) lacktime = 6;
+                                else if (d_wpm > 30) lacktime = 5.5;
                               if (lowDuration > (lacktime * ditAvg)) {
                                    printToScroll(REGULAR, " ");                       // output a blank                                
                                    decoderState = LOW_;
