@@ -1,7 +1,7 @@
 //////// Program Version
 #define VERSION_MAJOR 2
 #define VERSION_MINOR 1
-#define BETA false
+#define BETA true
 
 ///// its is crucial to have the right board version - Boards 2 and 2a (prototypes only) set it to 2, Boards 3 set it to 3
 ///// the Board Version 2 is for HEltec Modules V1 only, Board Version 3 for Heltec V2 only
@@ -46,6 +46,10 @@
 
 ///// include of the various libraries and include files being used
 
+// For switching between the used include paths
+#define CUSTOM_INCLUDES
+
+#ifndef CUSTOM_INCLUDES
 #include <Wire.h>          // Only needed for Arduino 1.6.5 and earlier
 #include "SSD1306.h"       // alias for `#include "SSD1306Wire.h"
 #include "ClickButton.h"   // button control library
@@ -65,7 +69,27 @@
                            // these fonts were created with this tool: http://oleddisplay.squix.ch/#/home
 #include "abbrev.h"        // common CW abbreviations
 #include "english_words.h" // common English words
+#else
+//#include <Wire.h>          // Only needed for Arduino 1.6.5 and earlier
+#include "oled/SSD1306.h"       // alias for `#include "SSD1306Wire.h"
+#include "ClickButton.h"   // button control library
+#include <Preferences.h>   // ESP 32 library for storing things in non-volatile storage
+#include <SPI.h>           // library for SPI interface
+#include "lora/LoRa.h"     // library for LoRa transceiver
+#include <WiFi.h>          // basic WiFi functionality
+#include <WebServer.h>     // simple web sever
+#include <ESPmDNS.h>       // DNS functionality
+#include <WiFiClient.h>    //WiFi clinet library
+#include <Update.h>        // update "over the air" (OTA) functionality
+#include "FS.h"
+#include "SPIFFS.h"
 
+#include "wklfonts.h"      // monospaced fonts in size 12 (regular and bold) for smaller text and 15 for larger text (regular and bold), called :
+                           // DialogInput_plain_12, DialogInput_bold_12 & DialogInput_plain_15, DialogInput_bold_15
+                           // these fonts were created with this tool: http://oleddisplay.squix.ch/#/home
+#include "abbrev.h"        // common CW abbreviations
+#include "english_words.h" // common English words
+#endif
 
 
 /// we need this for some strange reason: the min definition breaks with WiFi
@@ -130,7 +154,7 @@ const int PinDT=39;                    // Used for reading DT signal  - needs ex
 const int batteryPin = 13;
 
 // pin to switch ON Vext
-const int Vext = 21;
+//const int Vext = 21;
 
 
 #else
@@ -383,6 +407,7 @@ boolean quickStart;                                     // should we execute men
 #define    IAMBICB      2          // Curtis Mode B (with enhanced Curtis timing, set as parameter
 #define    ULTIMATIC    3          // Ultimatic mode
 #define    NONSQUEEZE   4          // Non-squeeze mode of dual-lever paddles - simulate a single-lever paddle
+#define    STRAIGHT     5          // Force straight key
 
 // define modes for state machine of the various modi the encoder can be in
  
@@ -1079,6 +1104,25 @@ int IRAM_ATTR checkEncoder() {
   }
 }
 
+void initSensors() {
+  int v;
+  lUntouched = rUntouched = 60;       /// new: we seek minimum
+  for (int i=0; i<8; ++i) {
+      while ( !(v=touchRead(LEFT)) )
+        ;                                       // ignore readings with value 0
+        lUntouched += v;
+        //lUntouched = _min(lUntouched, v);
+       while ( !(v=touchRead(RIGHT)) )
+        ;                                       // ignore readings with value 0
+        rUntouched += v;
+        //rUntouched = _min(rUntouched, v);
+  }
+  lUntouched /= 8;
+  rUntouched /= 8;
+  p_tLeft = lUntouched - 9;
+  p_tRight = rUntouched - 9;
+}
+
 
 ////////////////////////   S E T U P /////////////////////////////
 
@@ -1176,8 +1220,7 @@ void setup()
   createKochWords(p_wordLength, p_kochFilter) ;  // 
   createKochAbbr(p_abbrevLength, p_kochFilter);
 
-
-/// check if BLACK knob has been pressed on startup - if yes, we have to perform LoRa Setup
+  /// check if BLACK knob has been pressed on startup - if yes, we have to perform LoRa Setup
   delay(50);
   if (SPIFFS.begin() && digitalRead(modeButtonPin) == LOW)   {        // BLACK was pressed at start-up - checking for SPIFF so that programming 1st time w/o pull-up shows menu
      display.clear();
@@ -1320,6 +1363,10 @@ void loop() {
       case morseKeyer:    if (doPaddleIambic(leftKey, rightKey)) {
                                return;                                                        // we are busy keying and so need a very tight loop !
                           }
+                          if (speedChanged) {
+                            speedChanged = false;
+                            displayCWspeed();
+                          }
                           break;
       case loraTrx:      if (doPaddleIambic(leftKey, rightKey)) {
                                return;                                                        // we are busy keying and so need a very tight loop !
@@ -1376,10 +1423,10 @@ void loop() {
                                printOnStatusLine(true, 0, "Continue w/ Paddle");
                             }
                           else {
-                               //cleanStartSettings();    
+                               //cleanStartSettings();
                                generatorState = KEY_UP;
-                               genTimer = millis() - 1; 
-                               displayTopLine();   
+                               genTimer = millis() - 1;
+                               displayTopLine();
                             }
                           }
                           if (active)
@@ -1408,9 +1455,10 @@ void loop() {
                             case  EVAL_ANSWER:  echoTrainerEval();
                                                 break;
                             case  COMPLETE_ANSWER:                    
-                            case  GET_ANSWER:   if (doPaddleIambic(leftKey, rightKey)) 
-                                                    return;                             // we are busy keying and so need a very tight loop !
-                                                break;
+                            case  GET_ANSWER:
+                                if (doPaddleIambic(leftKey, rightKey))
+                                    return;                             // we are busy keying and so need a very tight loop !
+                                break;
                             }                              
                             break;
       case morseDecoder: doDecode();
@@ -1423,6 +1471,7 @@ void loop() {
                         
   } // end switch and code depending on state of metaMorserino
 
+  Serial.println("Checking buttons");
 /// if we have time check for button presses
 
     modeButton.Update();
@@ -1763,7 +1812,12 @@ boolean menuExec() {                                          // return true if 
                 display.clear();
                 printOnScroll(0, REGULAR, 0, generatorMode == KOCH_LEARN ? "New Character:" : "Echo Trainer:");
                 printOnScroll(1, REGULAR, 0, "Start:       ");
-                printOnScroll(2, REGULAR, 0, "Press paddle ");
+                if(p_keyermode != STRAIGHT) {
+                  printOnScroll(2, REGULAR, 0, "Press paddle ");
+                }
+                else {
+                  printOnScroll(2, REGULAR, 0, "Press key ");
+                }
                 delay(1250);
                 display.clear();
                 displayTopLine();
@@ -1944,6 +1998,11 @@ boolean menuExec() {                                          // return true if 
 /////
 
 boolean doPaddleIambic (boolean dit, boolean dah) {
+
+  if(p_keyermode == STRAIGHT) {
+    return doStraightKey(leftKey, rightKey);
+  }
+
   boolean paddleSwap;                      // temp storage if we need to swap left and right
   static long ktimer;                      // timer for current element (dit or dah)
   static long curtistimer;                 // timer for early paddle latch in Curtis mode B+
@@ -2153,6 +2212,100 @@ boolean doPaddleIambic (boolean dit, boolean dah) {
 } /////////////////// end function doPaddleIambic()
 
 
+bool doStraightKey(bool keyA, bool keyB) {
+  float lacktime;
+  int wpm;
+
+  if(!ditAvg) {
+    ditAvg = 100;
+  }
+
+  if(!dahAvg) {
+    dahAvg = 300;
+  }
+
+  const bool isPressed = keyA || keyB;
+
+  // The decode speed should remain static when in echo trainer
+  bool staticSpeed = morseState == echoTrainer;
+
+  switch(decoderState) {
+    case INTERELEMENT_:
+      if (isPressed) {
+          ON_();
+          decoderState = HIGH_;
+      } else {
+          lowDuration = millis() - startTimeLow;                        // we record the length of the pause
+          lacktime = 2.2;                                               ///  when high speeds we have to have a little more pause before new letter 
+          
+          if (lowDuration > (lacktime * ditAvg)) {
+
+            // Update the decoding speed if appropriate
+            if (!staticSpeed) {
+              wpm = (d_wpm + (int) (7200 / (dahAvg + 3*ditAvg))) / 2;     //// recalculate speed in wpm
+              if (d_wpm != wpm) {
+                d_wpm = wpm;
+                p_wpm = wpm;
+                speedChanged = true;
+              }
+            }
+            displayMorse();                                             /// decode the morse character and display it
+            decoderState = INTERCHAR_;
+          }
+      }
+      return true;
+      break;
+
+    case INTERCHAR_:
+        if (isPressed) {
+          ON_();
+          decoderState = HIGH_;
+          return true;
+        } else {
+          lowDuration = millis() - startTimeLow;             // we record the length of the pause
+          lacktime = 5;                 ///  when high speeds we have to have a little more pause before new word
+
+          if (d_wpm > 35) lacktime = 6;
+          else if (d_wpm > 30) lacktime = 5.5;
+
+          if (morseState == echoTrainer && echoTrainerState == GET_ANSWER) {
+            if(millis() > genTimer) {
+              printToScroll(REGULAR, " ");                       // output a blank                                
+              echoTrainerState = EVAL_ANSWER;
+              decoderState = LOW_;
+            }
+          } 
+          else if (lowDuration > (lacktime * ditAvg)) {
+            printToScroll(REGULAR, " ");                       // output a blank                                
+            decoderState = LOW_;
+          }
+
+          return false;
+        }
+        break;
+
+    case LOW_:
+      if (isPressed) {
+        ON_();
+        decoderState = HIGH_;
+      }
+      break;
+
+    case HIGH_:
+      if (!isPressed) {
+        OFF_();
+        decoderState = INTERELEMENT_;
+        if(morseState == echoTrainer && echoTrainerState == GET_ANSWER) {
+          genTimer = millis() + (interCharacterSpace + (p_promptPause * interWordSpace))/2;
+        }
+      }
+      break;
+  } 
+  return false;
+}
+
+
+
 
 //// this function checks the paddles (touch or external), returns true when a paddle has been activated, 
 ///// and sets the global variable leftKey and rightKey accordingly
@@ -2324,6 +2477,7 @@ void displayTopLine() {
       case IAMBICB:   printOnStatusLine(false, 2,  "B "); break;          // orig Curtis B mode: paddle eval during element
       case ULTIMATIC: printOnStatusLine(false, 2,  "U "); break;          // Ultimatic Mode
       case NONSQUEEZE: printOnStatusLine(false, 2,  "N "); break;         // Non-squeeze mode
+      case STRAIGHT: printOnStatusLine(false, 2,  "S "); break;           // Straight-key mode
     }
   }
 
@@ -2347,15 +2501,21 @@ void dispLoraLogo() {     // display a small logo in the top right corner to ind
 
 void displayCWspeed () {
   if (( morseState == morseGenerator || morseState ==  echoTrainer )) 
-      sprintf(numBuffer, "(%2i)", effWpm);  
-  else if (morseState == morseTrx )
-      sprintf(numBuffer, "r%2is", d_wpm)
-      ;
+      sprintf(numBuffer, "(%2i)", effWpm);   
   else sprintf(numBuffer, "    ");
   
-  printOnStatusLine(false, 3,  numBuffer);                                         // effective wpm or rxwpm
-
-  sprintf(numBuffer, "%2i", (morseState == morseDecoder ? d_wpm : p_wpm));         // d_wpm (decode) or p_wpm (default)
+  printOnStatusLine(false, 3,  numBuffer);                                         // effective wpm
+  
+  bool showDecodeSpeed = (morseState == morseDecoder || (morseState == morseKeyer && p_keyermode == STRAIGHT));
+  if (showDecodeSpeed) {
+    if (!d_wpm) {
+      d_wpm = p_wpm;
+    }
+    sprintf(numBuffer, "%2i", d_wpm);
+  }
+  else {
+    sprintf(numBuffer, "%2i", p_wpm);
+  }
   printOnStatusLine(encoderState == speedSettingMode ? true : false, 7,  numBuffer);
   printOnStatusLine(false, 10,  "WpM");
   display.display();
@@ -2403,25 +2563,6 @@ uint8_t readSensors(int left, int right) {
   return ( lValue < p_tLeft ? 2 : 0 ) + (rValue < p_tRight ? 1 : 0 );
 }
 
-
-void initSensors() {
-  int v;
-  lUntouched = rUntouched = 60;       /// new: we seek minimum
-  for (int i=0; i<8; ++i) {
-      while ( !(v=touchRead(LEFT)) )
-        ;                                       // ignore readings with value 0
-        lUntouched += v;
-        //lUntouched = _min(lUntouched, v);
-       while ( !(v=touchRead(RIGHT)) )
-        ;                                       // ignore readings with value 0
-        rUntouched += v;
-        //rUntouched = _min(rUntouched, v);
-  }
-  lUntouched /= 8;
-  rUntouched /= 8;
-  p_tLeft = lUntouched - 9;
-  p_tRight = rUntouched - 9;
-}
 
 
 String getRandomWord( int maxLength) {        //// give me a random English word, max maxLength chars long (1-5) - 0 returns any length
@@ -2696,6 +2837,8 @@ void generateCW () {          // this is called from loop() (frequently!)  and g
                                                 }
                                                 ++repeats;
                                                 genTimer = millis() + p_responsePause * interWordSpace;
+                                                d_wpm = p_wpm;
+                                                startTimeLow = millis();
                                           }
                         default:          break;
                     }
@@ -2844,8 +2987,8 @@ void fetchNewWord() {
                               if ( morseState == echoTrainer || ((morseState == morseGenerator) && !p_autoStop) ) {
                                 // a case for maxSequence - no maxSequence in autostop mode
                             //if (((morseState == morseGenerator) || (morseState == echoTrainer)) && (p_maxSequence != 0) &&
-                            //        (generatorMode != KOCH_LEARN) && !p_autoStop)  {                          
-                                ++ wordCounter;                                                               // 
+                            //        (generatorMode != KOCH_LEARN) && !p_autoStop)  {
+                                ++ wordCounter;
                                 int limit = 1 + p_maxSequence;
                                 if (wordCounter == limit) {
                                   clearText = "+";
@@ -3121,7 +3264,8 @@ void displayCurtisMode() {
   String keyerModus[] = {"Curtis A    ", 
                          "Curtis B    ", 
                          "Ultimatic   ",
-                         "Non-Squeeze "};
+                         "Non-Squeeze ",
+                         "Straight    "};
   printOnScroll(2, REGULAR, 1, keyerModus[p_keyermode-1]);
 }   
 
@@ -3488,7 +3632,7 @@ boolean adjustKeyerPreference(prefPos pos) {        /// rotating the encoder cha
             pwmClick(p_sidetoneVolume);         /// click 
             switch (pos) {
                 case  posCurtisMode : p_keyermode = (p_keyermode + t);                        // set the curtis mode
-                                      p_keyermode = constrain(p_keyermode, 1, 4);
+                                      p_keyermode = constrain(p_keyermode, 1, 5);
                                       displayCurtisMode();                                    // display curtis mode
                                       break;
                 case  posCurtisBDahTiming : p_curtisBTiming += (t * 5);                          // Curtis B timing dah (enhanced Curtis mode)
@@ -3690,9 +3834,17 @@ boolean adjustKeyerPreference(prefPos pos) {        /// rotating the encoder cha
 ///////// evaluate the response in Echo Trainer Mode
 void echoTrainerEval() {
     delay(interCharacterSpace / 2);
+
+    // If any <err>s got sent, evaluate only the string after the last one
+    int err_index = echoResponse.indexOf("<err>");
+    while(err_index >= 0) {
+      echoResponse = echoResponse.substring(err_index + 5);
+      err_index = echoResponse.indexOf("<err>");
+    }
+
     if (echoResponse == echoTrainerWord) {
       echoTrainerState = SEND_WORD;
-      printToScroll(BOLD,  "OK");
+      printToScroll(BOLD,  "OK ");
       if (p_echoConf) {
           pwmTone(440,  p_sidetoneVolume, false);
           delay(97);
@@ -3707,7 +3859,7 @@ void echoTrainerEval() {
     } else {
       echoTrainerState = REPEAT_WORD;
       if (generatorMode != KOCH_LEARN || echoResponse != "") {
-          printToScroll(BOLD, "ERR");
+          printToScroll(BOLD, "ERR ");
           if (p_echoConf) {
               pwmTone(311,  p_sidetoneVolume, false);
               delay(193);
@@ -3736,6 +3888,7 @@ void updateTimings() {
 void changeSpeed( int t) {
   p_wpm += t;
   p_wpm = constrain(p_wpm, 5, 60);
+  d_wpm = p_wpm;
   updateTimings();
   displayCWspeed();                     // update display of CW speed
   charCounter = 0;                                    // reset character counter
@@ -4541,9 +4694,11 @@ void setupGoertzel () {                 /// pre-compute some values that are com
 #define straightPin leftPin
 
 boolean straightKey() {            // return true if a straight key was closed, or a touch paddle touched
-if ((morseState == morseDecoder) && ((!digitalRead(straightPin)) || leftKey || rightKey) )
+  if ((morseState == morseDecoder) && ((!digitalRead(straightPin)) || leftKey || rightKey) )
     return true;
-else return false;
+  if ((p_keyermode == STRAIGHT) && ((!digitalRead(straightPin)) || leftKey || rightKey) )
+    return true;
+  return false;
 }
 
 boolean checkTone() {              /// check if we have a tone signal at A6 with Gortzel's algorithm, and apply some noise blanking as well
